@@ -126,10 +126,13 @@ export class GwlbDemoStack extends cdk.Stack {
 ${vpnServerSrc}
 EOF`,
       "cd /opt/app",
+      "export GOCACHE=/tmp/gocache",
+      "export GOMODCACHE=/tmp/gomodcache",
       "go build -o /tmp/vpn_server vpn_server.go",
       "install -m 755 /tmp/vpn_server /usr/local/bin/vpn_server",
       // Listen on 6081 (GENEVE)
-      "nohup /usr/local/bin/vpn_server --listen :6081 --client 10.60.1.50:6000 --key secret >/var/log/vpn_server.log 2>&1 &"
+      "nohup /usr/local/bin/vpn_server --listen :6081 --client 10.60.1.50:6000 --key secret >/var/log/vpn_server.log 2>&1 &",
+      "sleep 1"
     );
 
     const overlayEc2 = new ec2.Instance(this, "OverlayGateway", {
@@ -173,9 +176,12 @@ EOF`,
 ${vpnClientSrc}
 EOF`,
       "cd /opt/app",
+      "export GOCACHE=/tmp/gocache",
+      "export GOMODCACHE=/tmp/gomodcache",
       "go build -o /tmp/vpn_client vpn_client.go",
       "install -m 755 /tmp/vpn_client /usr/local/bin/vpn_client",
-      "nohup /usr/local/bin/vpn_client --listen :6000 --server 10.60.0.10:5000 --key secret >/var/log/vpn_client.log 2>&1 &"
+      "nohup /usr/local/bin/vpn_client --listen :6000 --server 10.60.0.10:5000 --key secret >/var/log/vpn_client.log 2>&1 &",
+      "sleep 1"
     );
 
     const vpnClientRole = new iam.Role(this, "VpnClientRole", {
