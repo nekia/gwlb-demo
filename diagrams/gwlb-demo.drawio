@@ -1,0 +1,87 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" version="29.1.1">
+  <diagram id="gwlb" name="GWLB Demo (Layered)">
+    <mxGraphModel dx="2066" dy="1137" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="backendLane" parent="1" style="swimlane;fontStyle=1;horizontal=0;childLayout=stackLayout;horizontalStack=0;startSize=40;fillColor=#e6f2ff;strokeColor=#2473c5;rounded=1;whiteSpace=wrap;html=1;" value="Backend VPC&#xa;10.50.0.0/16" vertex="1">
+          <mxGeometry height="520" width="420" x="20" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="backendEc2" parent="backendLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/Compute/Amazon-EC2_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="Backend EC2&#xa;- Amazon Linux 2023&#xa;- Sends UDP to 10.0.0.10:80&#xa;- Role: AmazonSSMManagedInstanceCore" vertex="1">
+          <mxGeometry height="140" width="140" x="30" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ssmEndpoints" parent="backendLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/Management-Governance/AWS-Systems-Manager_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="SSM Interface Endpoints&#xa;- SSM / SSM Messages / EC2 Messages&#xa;- SG allows 443 from VPC" vertex="1">
+          <mxGeometry height="140" width="140" x="190" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="backendRoute" parent="backendLane" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#2473c5;fontSize=12;" value="Routes 10.0.0.10/32&#xa;→ GWLB Endpoint" vertex="1">
+          <mxGeometry height="80" width="300" x="30" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="gwlbeLane" parent="1" style="swimlane;fontStyle=1;horizontal=0;startSize=40;fillColor=#edf5ff;strokeColor=#3794ff;rounded=1;whiteSpace=wrap;html=1;" value="GWLB Endpoints&#xa;(per AZ)" vertex="1">
+          <mxGeometry height="520" width="360" x="460" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="gwlbeIcon" parent="gwlbeLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/NetworkingContentDelivery/AWS-PrivateLink_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="Gateway Load Balancer Endpoints&#xa;- One per AZ (private subnets)&#xa;- VPC endpoint type: GWLB" vertex="1">
+          <mxGeometry height="160" width="160" x="100" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="gwlbLane" parent="1" style="swimlane;fontStyle=1;horizontal=0;startSize=40;fillColor=#fff7e6;strokeColor=#ff9f1c;rounded=1;whiteSpace=wrap;html=1;" value="Gateway Load Balancer" vertex="1">
+          <mxGeometry height="520" width="420" x="840" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="gwlbIcon" parent="gwlbLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/NetworkingContentDelivery/AWS-Gateway-Load-Balancer_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="AWS Gateway Load Balancer&#xa;- Public subnets, cross-AZ&#xa;- Protocol: GENEVE 6081" vertex="1">
+          <mxGeometry height="160" width="160" x="30" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="endpointService" parent="gwlbLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/NetworkingContentDelivery/AWS-PrivateLink_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="GWLB Endpoint Service&#xa;- Shares GWLB&#xa;- Acceptance disabled" vertex="1">
+          <mxGeometry height="160" width="160" x="210" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="listener" parent="gwlbLane" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#ff9f1c;fontSize=12;" value="GWLB Listener&#xa;- Default action: forward to TG" vertex="1">
+          <mxGeometry height="80" width="340" x="30" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="targetGroup" parent="gwlbLane" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#ff9f1c;fontSize=12;" value="GWLB Target Group&#xa;- Targets: overlay instances&#xa;- Health check TCP 80 /10s" vertex="1">
+          <mxGeometry height="80" width="340" x="30" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="overlayLane" parent="1" style="swimlane;fontStyle=1;horizontal=0;startSize=40;fillColor=#e8f5e9;strokeColor=#4caf50;rounded=1;whiteSpace=wrap;html=1;" value="Overlay Network&#xa;(Inspection VPC 10.60.0.0/16)" vertex="1">
+          <mxGeometry height="520" width="420" x="1280" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="overlayGateway" parent="overlayLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/Compute/Amazon-EC2_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="Overlay Gateway EC2 (vpn_server)&#xa;- Builds Go server from userdata&#xa;- Listens on 6081, forwards to client&#xa;- SG allows UDP 5000 / 6081 &amp; TCP 80" vertex="1">
+          <mxGeometry height="160" width="160" x="30" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="overlayFlow" parent="overlayLane" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4caf50;fontSize=12;" value="User data installs vpn_server&#xa;→ registers as GWLB target" vertex="1">
+          <mxGeometry height="100" width="160" x="210" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="clientLane" parent="1" style="swimlane;fontStyle=1;horizontal=0;startSize=40;fillColor=#f9e7ef;strokeColor=#d81b60;rounded=1;whiteSpace=wrap;html=1;" value="Client VPC&#xa;(overlay client segment)" vertex="1">
+          <mxGeometry height="520" width="360" x="1720" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="clientVpc" parent="clientLane" style="shape=image;image=https://d1.awsstatic.com/webteam/architecture-icons/64/Compute/Amazon-EC2_64.png;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;fontSize=12;labelBackgroundColor=#ffffff;" value="VPN Client EC2 (10.60.1.50)&#xa;- Runs vpn_client&#xa;- Listens UDP 6000, initiates to 10.60.0.10:5000" vertex="1">
+          <mxGeometry height="160" width="160" x="90" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="clientSgNote" parent="clientLane" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d81b60;fontSize=12;" value="Security Group&#xa;- Allows UDP 6000 from overlay SG&#xa;- Outbound to 10.60.0.10:5000" vertex="1">
+          <mxGeometry height="100" width="220" x="60" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeBackendToGwlbe" edge="1" parent="1" source="backendEc2" style="endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#2473c5;strokeWidth=2;" target="gwlbeIcon">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="450" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edgeSsmToGwlbe" edge="1" parent="1" source="ssmEndpoints" style="dashed=1;endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#2473c5;" target="gwlbeIcon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeGwlbeToGwlb" edge="1" parent="1" source="gwlbeIcon" style="endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#3794ff;strokeWidth=2;" target="gwlbIcon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeGwlbToService" edge="1" parent="1" source="gwlbIcon" style="dashed=1;endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9f1c;" target="endpointService">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeServiceToListener" edge="1" parent="1" source="endpointService" style="dashed=1;endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9f1c;" target="listener">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeListenerToTg" edge="1" parent="1" source="listener" style="endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9f1c;strokeWidth=2;" target="targetGroup">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeTgToOverlay" edge="1" parent="1" source="targetGroup" style="endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;" target="overlayGateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeOverlayToClient" edge="1" parent="1" source="overlayGateway" style="endArrow=block;edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;" target="clientVpc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

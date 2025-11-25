@@ -1,0 +1,178 @@
+digraph GwlbDemo {
+  graph [
+    label="GWLBデモ アーキテクチャ（日本語）",
+    labelloc=top,
+    fontsize=20,
+    fontname="Noto Sans CJK JP",
+    rankdir=LR,
+    bgcolor="#ffffff",
+    splines=ortho,
+    nodesep=1.0,
+    ranksep=1.2
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#ffffff",
+    fontname="Noto Sans CJK JP",
+    fontsize=12
+  ];
+
+  edge [
+    color="#555555",
+    penwidth=2,
+    arrowsize=0.8,
+    fontname="Noto Sans CJK JP",
+    fontsize=11
+  ];
+
+  subgraph cluster_backend {
+    label="バックエンドVPC (10.50.0.0/16)";
+    color="#2473c5";
+    style="rounded";
+    fontname="Noto Sans CJK JP";
+
+    backend_private [label="プライベートサブネット\n(AZ x2 / NATなし)", fillcolor="#e6f2ff"];
+
+    backend_ec2 [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/amazon-ec2.png"/></TD></TR>
+          <TR><TD><B>バックエンドEC2</B></TD></TR>
+          <TR><TD>Amazon Linux 2023 / SSM</TD></TR>
+          <TR><TD>10.0.0.10:80 へ UDP テスト送信</TD></TR>
+        </TABLE>
+      >
+    ];
+
+    ssm_ep [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/aws-systems-manager.png"/></TD></TR>
+          <TR><TD><B>SSMインターフェース\nエンドポイント</B></TD></TR>
+          <TR><TD>SSM / SSM Messages / EC2 Messages</TD></TR>
+          <TR><TD>SG: 443 を VPC CIDR から許可</TD></TR>
+        </TABLE>
+      >
+    ];
+
+    backend_route [label="ルート: 10.0.0.10/32\n→ GWLBエンドポイント", fillcolor="#ffffff"];
+  }
+
+  subgraph cluster_gwlbe {
+    label="GWLBエンドポイント (各AZ)";
+    color="#3794ff";
+    style="rounded";
+    fontname="Noto Sans CJK JP";
+
+    gwlbe [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/aws-privatelink.png"/></TD></TR>
+          <TR><TD><B>Gateway Load Balancer\nエンドポイント</B></TD></TR>
+          <TR><TD>タイプ: GatewayLoadBalancer</TD></TR>
+          <TR><TD>プライベートサブネット毎に1つ</TD></TR>
+        </TABLE>
+      >
+    ];
+  }
+
+  subgraph cluster_gwlb {
+    label="ゲートウェイロードバランサー";
+    color="#ff9f1c";
+    style="rounded";
+    fontname="Noto Sans CJK JP";
+
+    gwlb_core [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/aws-gwlb.png"/></TD></TR>
+          <TR><TD><B>GWLB (type=gateway)</B></TD></TR>
+          <TR><TD>公開サブネット / クロスAZ</TD></TR>
+          <TR><TD>プロトコル: GENEVE 6081</TD></TR>
+        </TABLE>
+      >
+    ];
+
+    endpoint_service [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/aws-privatelink.png"/></TD></TR>
+          <TR><TD><B>GWLBエンドポイントサービス</B></TD></TR>
+          <TR><TD>GWLB ARN を共有</TD></TR>
+          <TR><TD>承認不要 (auto-accept)</TD></TR>
+        </TABLE>
+      >
+    ];
+
+    listener [label="GWLBリスナー\nデフォルトアクション: Target Group へ転送", fillcolor="#fff2cc"];
+    target_group [label="GWLBターゲットグループ\nターゲット: インスタンス\nヘルスチェック: TCP 80 / 10秒", fillcolor="#fff2cc"];
+  }
+
+  subgraph cluster_overlay {
+    label="オーバーレイVPC (10.60.0.0/16)";
+    color="#4caf50";
+    style="rounded";
+    fontname="Noto Sans CJK JP";
+
+    overlay_gw [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/amazon-ec2.png"/></TD></TR>
+          <TR><TD><B>オーバーレイゲートウェイEC2</B></TD></TR>
+          <TR><TD>Go製 vpn_server を起動</TD></TR>
+          <TR><TD>UDP 5000 / 6081, TCP 80 を許可</TD></TR>
+        </TABLE>
+      >
+    ];
+
+    overlay_note [label="ユーザーデータでビルド →\n/usr/local/bin/vpn_server を配置", fillcolor="#e8f5e9"];
+  }
+
+  subgraph cluster_client {
+    label="クライアントVPC / セグメント";
+    color="#d81b60";
+    style="rounded";
+    fontname="Noto Sans CJK JP";
+
+    vpn_client [
+      shape=none,
+      margin=0,
+      label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><IMG SRC="icons/amazon-ec2.png"/></TD></TR>
+          <TR><TD><B>VPNクライアントEC2</B></TD></TR>
+          <TR><TD>固定IP: 10.60.1.50</TD></TR>
+          <TR><TD>vpn_client を起動し UDP 6000 で待受</TD></TR>
+        </TABLE>
+      >
+    ];
+
+    client_sg [label="クライアントSG\nインバウンド: UDP 6000 (ゲートウェイSG)\nアウトバウンド: 10.60.0.10:5000", fillcolor="#fde7f0"];
+  }
+
+  backend_ec2 -> backend_route [xlabel="UDP/80 テストトラフィック"];
+  backend_route -> gwlbe [xlabel="10.0.0.10/32 宛て"];
+  gwlbe -> gwlb_core [xlabel="GENEVE 6081", color="#3794ff"];
+  gwlb_core -> endpoint_service [style=dashed, xlabel="共有サービス"];
+  endpoint_service -> listener [style=dashed, xlabel="公開エンドポイント"];
+  listener -> target_group [xlabel="転送"];
+  target_group -> overlay_gw [xlabel="検査トラフィック", color="#4caf50"];
+  overlay_gw -> vpn_client [xlabel="VPNトンネル (UDP 6000)", color="#4caf50"];
+  vpn_client -> client_sg [style=dotted, xlabel="セキュリティグループ設定"];
+  backend_ec2 -> ssm_ep [style=dashed, xlabel="管理 (HTTPS 443)"];
+}
+

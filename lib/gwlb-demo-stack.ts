@@ -25,42 +25,10 @@ export class GwlbDemoStack extends cdk.Stack {
       natGateways: 0,
       subnetConfiguration: [
         {
-          name: "Private",
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-        },
-        {
           name: "Public",
           subnetType: ec2.SubnetType.PUBLIC,
         },
       ],
-    });
-
-    //
-    // SSM Interface Endpoints for Backend VPC
-    //
-    const backendSsmEndpointSg = new ec2.SecurityGroup(this, "BackendSsmEndpointSg", {
-      vpc: backendVpc,
-      allowAllOutbound: true,
-      description: "Allow Backend subnets to reach SSM interface endpoints",
-    });
-    backendSsmEndpointSg.addIngressRule(
-      ec2.Peer.ipv4(backendVpc.vpcCidrBlock),
-      ec2.Port.tcp(443),
-      "Allow HTTPS from Backend VPC"
-    );
-
-    const ssmServices = [
-      ec2.InterfaceVpcEndpointAwsService.SSM,
-      ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
-      ec2.InterfaceVpcEndpointAwsService.EC2_MESSAGES,
-    ];
-
-    ssmServices.forEach((service, idx) => {
-      backendVpc.addInterfaceEndpoint(`BackendSsmEndpoint${idx}`, {
-        service,
-        subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-        securityGroups: [backendSsmEndpointSg],
-      });
     });
 
     //
@@ -121,7 +89,7 @@ export class GwlbDemoStack extends cdk.Stack {
     // GWLBE（Backend側） - Create one per AZ (subnet)
     //
     const gwlbes: ec2.CfnVPCEndpoint[] = [];
-    backendVpc.privateSubnets.forEach((subnet, i) => {
+    backendVpc.publicSubnets.forEach((subnet, i) => {
       const gwlbe = new ec2.CfnVPCEndpoint(this, `BackendGwlbe${i}`, {
         vpcId: backendVpc.vpcId,
         serviceName: `com.amazonaws.vpce.${this.region}.${gwlbService.ref}`,
@@ -234,9 +202,9 @@ EOF`,
     const backendUserData = ec2.UserData.forLinux();
     backendUserData.addCommands(
       "set -e",
-      "dnf install -y amazon-ssm-agent nc tcpdump",
+      "dnf install -y amazon-ssm-agent nmap-ncat tcpdump",
       "systemctl enable --now amazon-ssm-agent",
-      "echo 'auto test packet' | nc -u 10.0.0.10 80"
+      "echo 'auto test packet' | ncat -u 10.0.0.10 80"
     );
 
     // const backendEc2 = new ec2.Instance(this, "BackendEc2", {
@@ -255,14 +223,16 @@ EOF`,
       ],
     });
 
+    const backendSg = new ec2.SecurityGroup(this, "BackendSg", {
+      vpc: backendVpc,
+      allowAllOutbound: true,
+    });
+
     const backendEc2 = new ec2.Instance(this, "BackendEc2", {
       vpc: backendVpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroup: ec2.SecurityGroup.fromSecurityGroupId(
-        this,
-        "BackendDefaultSg",
-        backendVpc.vpcDefaultSecurityGroup
-      ),
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      associatePublicIpAddress: true,
+      securityGroup: backendSg,
       instanceType: new ec2.InstanceType("t3.micro"),
       machineImage: ec2.MachineImage.latestAmazonLinux2023(),
       userData: backendUserData,
@@ -272,7 +242,7 @@ EOF`,
     //
     // Route: 10.0.0.10/32 → GWLBE
     //
-    backendVpc.privateSubnets.forEach((subnet, i) => {
+    backendVpc.publicSubnets.forEach((subnet, i) => {
       new ec2.CfnRoute(this, `BackendToVip${i}`, {
         routeTableId: subnet.routeTable.routeTableId,
         destinationCidrBlock: "10.0.0.10/32",
