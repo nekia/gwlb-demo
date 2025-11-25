@@ -22,6 +22,45 @@ export class GwlbDemoStack extends cdk.Stack {
     const backendVpc = new ec2.Vpc(this, "BackendVpc", {
       ipAddresses: ec2.IpAddresses.cidr("10.50.0.0/16"),
       maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        {
+          name: "Private",
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        },
+        {
+          name: "Public",
+          subnetType: ec2.SubnetType.PUBLIC,
+        },
+      ],
+    });
+
+    //
+    // SSM Interface Endpoints for Backend VPC
+    //
+    const backendSsmEndpointSg = new ec2.SecurityGroup(this, "BackendSsmEndpointSg", {
+      vpc: backendVpc,
+      allowAllOutbound: true,
+      description: "Allow Backend subnets to reach SSM interface endpoints",
+    });
+    backendSsmEndpointSg.addIngressRule(
+      ec2.Peer.ipv4(backendVpc.vpcCidrBlock),
+      ec2.Port.tcp(443),
+      "Allow HTTPS from Backend VPC"
+    );
+
+    const ssmServices = [
+      ec2.InterfaceVpcEndpointAwsService.SSM,
+      ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
+      ec2.InterfaceVpcEndpointAwsService.EC2_MESSAGES,
+    ];
+
+    ssmServices.forEach((service, idx) => {
+      backendVpc.addInterfaceEndpoint(`BackendSsmEndpoint${idx}`, {
+        service,
+        subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        securityGroups: [backendSsmEndpointSg],
+      });
     });
 
     //
@@ -111,17 +150,18 @@ export class GwlbDemoStack extends cdk.Stack {
 
     const serverUserData = ec2.UserData.forLinux();
     serverUserData.addCommands(
-      "dnf install -y amazon-ssm-agent",
+      "set -e",
+      "dnf install -y amazon-ssm-agent golang tcpdump",
       "systemctl enable --now amazon-ssm-agent",
-      "yum install -y golang",
       "mkdir -p /opt/app",
       `cat <<'EOF' >/opt/app/vpn_server.go
 ${vpnServerSrc}
 EOF`,
       "cd /opt/app",
-      "go build -o vpn_server vpn_server.go",
+      "go build -o /tmp/vpn_server vpn_server.go",
+      "install -m 755 /tmp/vpn_server /usr/local/bin/vpn_server",
       // Listen on 6081 (GENEVE)
-      "nohup ./vpn_server --listen :6081 --client 10.60.1.50:6000 --key secret >/var/log/vpn_server.log 2>&1 &"
+      "nohup /usr/local/bin/vpn_server --listen :6081 --client 10.60.1.50:6000 --key secret >/var/log/vpn_server.log 2>&1 &"
     );
 
     const overlayEc2 = new ec2.Instance(this, "OverlayGateway", {
@@ -157,16 +197,17 @@ EOF`,
 
     const clientUserData = ec2.UserData.forLinux();
     clientUserData.addCommands(
-      "dnf install -y amazon-ssm-agent",
+      "set -e",
+      "dnf install -y amazon-ssm-agent golang tcpdump",
       "systemctl enable --now amazon-ssm-agent",
-      "yum install -y golang",
       "mkdir -p /opt/app",
       `cat <<'EOF' >/opt/app/vpn_client.go
 ${vpnClientSrc}
 EOF`,
       "cd /opt/app",
-      "go build -o vpn_client vpn_client.go",
-      "nohup ./vpn_client --listen :6000 --server 10.60.0.10:5000 --key secret >/var/log/vpn_client.log 2>&1 &"
+      "go build -o /tmp/vpn_client vpn_client.go",
+      "install -m 755 /tmp/vpn_client /usr/local/bin/vpn_client",
+      "nohup /usr/local/bin/vpn_client --listen :6000 --server 10.60.0.10:5000 --key secret >/var/log/vpn_client.log 2>&1 &"
     );
 
     const vpnClientRole = new iam.Role(this, "VpnClientRole", {
@@ -192,9 +233,9 @@ EOF`,
     //
     const backendUserData = ec2.UserData.forLinux();
     backendUserData.addCommands(
-      "dnf install -y amazon-ssm-agent",
+      "set -e",
+      "dnf install -y amazon-ssm-agent nc tcpdump",
       "systemctl enable --now amazon-ssm-agent",
-      "yum install -y nc",
       "echo 'auto test packet' | nc -u 10.0.0.10 80"
     );
 
