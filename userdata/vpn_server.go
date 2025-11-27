@@ -92,22 +92,36 @@ func main() {
 		}
 
 		// Protocol (Byte 9). UDP = 17
-		if innerPacket[9] != 17 {
+		if innerPacket[9] != 17 && innerPacket[9] != 6 {
 			continue
 		}
 
-		// UDP Header (8 bytes)
-		udpPacket := innerPacket[ipHeaderLen:]
-		if len(udpPacket) < 8 {
-			continue
+		var payload []byte
+
+		if innerPacket[9] == 17 {
+			// UDP Header (8 bytes)
+			udpPacket := innerPacket[ipHeaderLen:]
+			if len(udpPacket) < 8 {
+				continue
+			}
+			// Payload
+			payload = udpPacket[8:]
+		} else {
+			// TCP Header
+			tcpPacket := innerPacket[ipHeaderLen:]
+			if len(tcpPacket) < 20 {
+				continue
+			}
+			dataOffset := (tcpPacket[12] >> 4) * 4
+			if len(tcpPacket) < int(dataOffset) {
+				continue
+			}
+			payload = tcpPacket[dataOffset:]
 		}
-		
-		// Payload
-		payload := udpPacket[8:]
 		
 		// Log
 		data := xor(payload, key)
-		log.Printf("FROM BACKEND via GWLB (%s): %s", src.String(), string(data))
+		log.Printf("FROM BACKEND via GWLB (%s) Proto %d: %s", src.String(), innerPacket[9], string(data))
 
 		// Forward to Client (One-way for demo)
 		enc := xor(data, key)

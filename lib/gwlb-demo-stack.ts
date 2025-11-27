@@ -37,6 +37,18 @@ export class GwlbDemoStack extends cdk.Stack {
     const overlayVpc = new ec2.Vpc(this, "OverlayVpc", {
       ipAddresses: ec2.IpAddresses.cidr("10.60.0.0/16"),
       maxAzs: 2,
+      subnetConfiguration: [
+        {
+          name: "Ingress",
+          subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 24,
+        },
+        {
+          name: "Egress",
+          subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 24,
+        },
+      ],
     });
 
     //
@@ -44,7 +56,7 @@ export class GwlbDemoStack extends cdk.Stack {
     //
     const gwlb = new elbv2.CfnLoadBalancer(this, "GWLB", {
       type: "gateway",
-      subnets: overlayVpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds,
+      subnets: overlayVpc.selectSubnets({ subnetGroupName: "Ingress" }).subnetIds,
       loadBalancerAttributes: [{
         key: "load_balancing.cross_zone.enabled",
         value: "true"
@@ -137,12 +149,32 @@ EOF`,
 
     const overlayEc2 = new ec2.Instance(this, "OverlayGateway", {
       vpc: overlayVpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      availabilityZone: overlayVpc.availabilityZones[0],
+      vpcSubnets: { subnetGroupName: "Ingress" },
       securityGroup: overlaySg,
       instanceType: new ec2.InstanceType("t3.micro"),
       machineImage: ec2.MachineImage.latestAmazonLinux2023(),
       userData: serverUserData,
       role: overlayInstanceRole,
+      privateIpAddress: "10.60.0.10",
+    });
+
+    // Attach secondary interface (eth1) for VPN Client side
+    const egressSubnet = overlayVpc.selectSubnets({
+      subnetGroupName: "Egress",
+      availabilityZones: [overlayVpc.availabilityZones[0]],
+    }).subnets[0];
+
+    const eth1 = new ec2.CfnNetworkInterface(this, "OverlayEth1", {
+      subnetId: egressSubnet.subnetId,
+      groupSet: [overlaySg.securityGroupId],
+      description: "To VPN Client",
+    });
+
+    new ec2.CfnNetworkInterfaceAttachment(this, "AttachEth1", {
+      instanceId: overlayEc2.instanceId,
+      networkInterfaceId: eth1.ref,
+      deviceIndex: "1",
     });
 
     // new elbv2.CfnTargetGroupAttachment(this, "AttachOverlay", {
@@ -180,6 +212,10 @@ EOF`,
       "export GOMODCACHE=/tmp/gomodcache",
       "go build -o /tmp/vpn_client vpn_client.go",
       "install -m 755 /tmp/vpn_client /usr/local/bin/vpn_client",
+      // Connect to OverlayGateway eth0 IP? No, it connects to OverlayGateway.
+      // But from vpnClient (in Egress subnet), it can reach eth1 IP of OverlayGateway.
+      // Or eth0 IP if routing allows.
+      // Existing code used 10.60.0.10. OverlayGateway eth0 is now 10.60.0.10.
       "nohup /usr/local/bin/vpn_client --listen :6000 --server 10.60.0.10:5000 --key secret >/var/log/vpn_client.log 2>&1 &",
       "sleep 1"
     );
@@ -193,7 +229,7 @@ EOF`,
 
     const vpnClient = new ec2.Instance(this, "VpnClient", {
       vpc: overlayVpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      vpcSubnets: { subnetGroupName: "Egress" },
       securityGroup: clientSg,
       instanceType: new ec2.InstanceType("t3.micro"),
       machineImage: ec2.MachineImage.latestAmazonLinux2023(),
@@ -208,9 +244,12 @@ EOF`,
     const backendUserData = ec2.UserData.forLinux();
     backendUserData.addCommands(
       "set -e",
-      "dnf install -y amazon-ssm-agent nmap-ncat tcpdump",
+      "dnf install -y amazon-ssm-agent nmap-ncat tcpdump nmap",
       "systemctl enable --now amazon-ssm-agent",
-      "echo 'auto test packet' | ncat -u 10.0.0.10 80"
+      // TCP Test: Send SYN to 10.0.0.10:80
+      "nmap -Pn -p 80 10.0.0.10",
+      // TCP Data Test (Attempt)
+      "echo 'TCP Payload Test' | timeout 2 ncat 10.0.0.10 80 || true"
     );
 
     // const backendEc2 = new ec2.Instance(this, "BackendEc2", {
