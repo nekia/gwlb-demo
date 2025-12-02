@@ -37,9 +37,9 @@ cdk deploy --profile gwlb-demo --require-approval never
 SSM経由で接続
 
 ```powershell
-aws ssm start-session --profile gwlb-demo `
-  --target $(aws ec2 describe-instances --profile gwlb-demo `
-    --filters "Name=tag:Name,Values=*BackendEc2*" "Name=instance-state-name,Values=running" `
+aws ssm start-session --profile gwlb-demo \
+  --target $(aws ec2 describe-instances --profile gwlb-demo \
+    --filters "Name=tag:Name,Values=*BackendEc2*" "Name=instance-state-name,Values=running" \
     --query "Reservations[0].Instances[0].InstanceId" --output text)
 ```
 
@@ -58,9 +58,9 @@ sudo tcpdump -i any -n 'dst host 10.0.0.10' -v -X
 SSM経由で接続
 
 ```powershell
-aws ssm start-session --profile gwlb-demo `
-  --target $(aws ec2 describe-instances --profile gwlb-demo `
-    --filters "Name=tag:Name,Values=*OverlayGateway*" "Name=instance-state-name,Values=running" `
+aws ssm start-session --profile gwlb-demo \
+  --target $(aws ec2 describe-instances --profile gwlb-demo \
+    --filters "Name=tag:Name,Values=*OverlayGateway*" "Name=instance-state-name,Values=running" \
     --query "Reservations[0].Instances[0].InstanceId" --output text)
 ```
 
@@ -79,9 +79,9 @@ sudo tcpdump -i any -n '(port 6081 or port 5000)' -v
 SSM経由で接続
 
 ```powershell
-aws ssm start-session --profile gwlb-demo `
-  --target $(aws ec2 describe-instances --profile gwlb-demo `
-    --filters "Name=tag:Name,Values=*VpnClient*" "Name=instance-state-name,Values=running" `
+aws ssm start-session --profile gwlb-demo \
+  --target $(aws ec2 describe-instances --profile gwlb-demo \
+    --filters "Name=tag:Name,Values=*VpnClient*" "Name=instance-state-name,Values=running" \
     --query "Reservations[0].Instances[0].InstanceId" --output text)
 ```
 
@@ -93,6 +93,15 @@ tail -f /var/log/vpn_client.log
 
 ```sh
 sudo tcpdump -i any -n port 6000 -v -A
+```
+
+### WireGuard Overlay
+
+OverlayGateway と VpnClient 間には WireGuard で `10.0.0.0/16` の仮想ネットワークを張っています。双方で以下を実行するとトンネル状態を確認できます。
+
+```sh
+sudo wg show
+ip addr show wg0
 ```
 
 ## Clean up

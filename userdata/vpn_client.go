@@ -16,8 +16,8 @@ func xor(data []byte, key []byte) []byte {
 }
 
 func main() {
-    listen := flag.String("listen", ":6000", "udp listen for tunnel")
-    server := flag.String("server", "192.168.100.10:5000", "server udp address")
+    listen := flag.String("listen", "10.0.0.10:6000", "udp listen for tunnel")
+    server := flag.String("server", "10.0.0.1:5000", "server udp address")
     keyStr := flag.String("key", "secret", "xor key")
     flag.Parse()
 

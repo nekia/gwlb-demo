@@ -17,6 +17,18 @@ export class GwlbDemoStack extends cdk.Stack {
     const vpnClientSrc = fs.readFileSync("userdata/vpn_client.go", "utf8");
 
     //
+    // WireGuard (Overlay ↔︎ VPN Client)
+    //
+    const wireguardPort = 51820;
+    const wireguardNetworkCidr = "10.0.0.0/16";
+    const wireguardServerIp = "10.0.0.1";
+    const wireguardClientIp = "10.0.0.10";
+    const wireguardServerPrivateKey = "IE11NmqzhJq4Y+EueTRrAJD6DSB4MdVo2Alfx46+m0M=";
+    const wireguardServerPublicKey = "dCXIy7zfYtCi01k5ZpqAPZNouB3iOp2b0iRjY3equyk=";
+    const wireguardClientPrivateKey = "4JIX9h3maEHTdqNwpjKDej8iRdP8dkgpQuw4XZld6FE=";
+    const wireguardClientPublicKey = "VwlhB3m1zfYLaF5WEKD7K3eri8EjpCWGLZ30iUN6qRY=";
+
+    //
     // Backend VPC
     //
     const backendVpc = new ec2.Vpc(this, "BackendVpc", {
@@ -119,8 +131,23 @@ export class GwlbDemoStack extends cdk.Stack {
     const serverUserData = ec2.UserData.forLinux();
     serverUserData.addCommands(
       "set -e",
-      "dnf install -y amazon-ssm-agent golang tcpdump",
+      "dnf install -y amazon-ssm-agent golang tcpdump wireguard-tools",
       "systemctl enable --now amazon-ssm-agent",
+      `cat <<'EOF' >/etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = ${wireguardServerPrivateKey}
+Address = ${wireguardServerIp}/16
+ListenPort = ${wireguardPort}
+SaveConfig = false
+
+[Peer]
+PublicKey = ${wireguardClientPublicKey}
+AllowedIPs = ${wireguardNetworkCidr}
+PersistentKeepalive = 25
+EOF`,
+      "chmod 600 /etc/wireguard/wg0.conf",
+      "systemctl enable wg-quick@wg0",
+      "wg-quick up wg0",
       "mkdir -p /opt/app",
       `cat <<'EOF' >/opt/app/vpn_server.go
 ${vpnServerSrc}
@@ -131,7 +158,7 @@ EOF`,
       "go build -o /tmp/vpn_server vpn_server.go",
       "install -m 755 /tmp/vpn_server /usr/local/bin/vpn_server",
       // Listen on 6081 (GENEVE)
-      "nohup /usr/local/bin/vpn_server --listen :6081 --client 10.60.1.50:6000 --key secret >/var/log/vpn_server.log 2>&1 &",
+      `nohup /usr/local/bin/vpn_server --listen :6081 --client ${wireguardClientIp}:6000 --key secret >/var/log/vpn_server.log 2>&1 &`,
       "sleep 1"
     );
 
@@ -165,12 +192,29 @@ EOF`,
       allowAllOutbound: true,
     });
     clientSg.addIngressRule(overlaySg, ec2.Port.udp(6000));
+    clientSg.addIngressRule(overlaySg, ec2.Port.udp(wireguardPort), "Allow WireGuard control");
+    overlaySg.addIngressRule(clientSg, ec2.Port.udp(wireguardPort), "Allow WireGuard from client");
 
     const clientUserData = ec2.UserData.forLinux();
     clientUserData.addCommands(
       "set -e",
-      "dnf install -y amazon-ssm-agent golang tcpdump",
+      "dnf install -y amazon-ssm-agent golang tcpdump wireguard-tools",
       "systemctl enable --now amazon-ssm-agent",
+      `cat <<'EOF' >/etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = ${wireguardClientPrivateKey}
+Address = ${wireguardClientIp}/16
+SaveConfig = false
+
+[Peer]
+PublicKey = ${wireguardServerPublicKey}
+AllowedIPs = ${wireguardNetworkCidr}
+Endpoint = ${overlayEc2.instancePrivateIp}:${wireguardPort}
+PersistentKeepalive = 25
+EOF`,
+      "chmod 600 /etc/wireguard/wg0.conf",
+      "systemctl enable wg-quick@wg0",
+      "wg-quick up wg0",
       "mkdir -p /opt/app",
       `cat <<'EOF' >/opt/app/vpn_client.go
 ${vpnClientSrc}
@@ -180,7 +224,7 @@ EOF`,
       "export GOMODCACHE=/tmp/gomodcache",
       "go build -o /tmp/vpn_client vpn_client.go",
       "install -m 755 /tmp/vpn_client /usr/local/bin/vpn_client",
-      "nohup /usr/local/bin/vpn_client --listen :6000 --server 10.60.0.10:5000 --key secret >/var/log/vpn_client.log 2>&1 &",
+      `nohup /usr/local/bin/vpn_client --listen ${wireguardClientIp}:6000 --server ${wireguardServerIp}:5000 --key secret >/var/log/vpn_client.log 2>&1 &`,
       "sleep 1"
     );
 
@@ -251,7 +295,7 @@ EOF`,
     backendVpc.publicSubnets.forEach((subnet, i) => {
       new ec2.CfnRoute(this, `BackendToVip${i}`, {
         routeTableId: subnet.routeTable.routeTableId,
-        destinationCidrBlock: "10.0.0.10/32",
+        destinationCidrBlock: wireguardNetworkCidr,
         vpcEndpointId: gwlbes[i].ref,
       });
     });

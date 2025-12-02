@@ -23,7 +23,7 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	listen := flag.String("listen", ":6081", "UDP listen (GENEVE)")
 	healthPort := flag.String("health-port", ":80", "TCP listen for Health Check")
-	client := flag.String("client", "10.60.1.50:6000", "client udp addr")
+	client := flag.String("client", "10.0.0.10:6000", "client udp addr")
 	keyStr := flag.String("key", "secret", "xor key")
 	flag.Parse()
 
