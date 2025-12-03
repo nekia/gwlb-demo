@@ -27,12 +27,14 @@ export class GwlbDemoStack extends cdk.Stack {
     const wireguardServerPublicKey = "dCXIy7zfYtCi01k5ZpqAPZNouB3iOp2b0iRjY3equyk=";
     const wireguardClientPrivateKey = "4JIX9h3maEHTdqNwpjKDej8iRdP8dkgpQuw4XZld6FE=";
     const wireguardClientPublicKey = "VwlhB3m1zfYLaF5WEKD7K3eri8EjpCWGLZ30iUN6qRY=";
+    const backendNetworkCidr = "10.50.0.0/16";
+    const geneveTunnelInterface = "geneveTun";
 
     //
     // Backend VPC
     //
     const backendVpc = new ec2.Vpc(this, "BackendVpc", {
-      ipAddresses: ec2.IpAddresses.cidr("10.50.0.0/16"),
+      ipAddresses: ec2.IpAddresses.cidr(backendNetworkCidr),
       maxAzs: 2,
       natGateways: 0,
       subnetConfiguration: [
@@ -124,7 +126,6 @@ export class GwlbDemoStack extends cdk.Stack {
       vpc: overlayVpc,
       allowAllOutbound: true,
     });
-    overlaySg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.udp(5000));
     overlaySg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.udp(6081), "Allow GWLB GENEVE");
     overlaySg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), "Allow GWLB Health Check");
 
@@ -133,21 +134,36 @@ export class GwlbDemoStack extends cdk.Stack {
       "set -e",
       "dnf install -y amazon-ssm-agent golang tcpdump wireguard-tools",
       "systemctl enable --now amazon-ssm-agent",
-      `cat <<'EOF' >/etc/wireguard/wg0.conf
-[Interface]
-PrivateKey = ${wireguardServerPrivateKey}
-Address = ${wireguardServerIp}/16
-ListenPort = ${wireguardPort}
-SaveConfig = false
+      "dnf install -y iptables-services",
+      "sysctl -w net.ipv4.ip_forward=1",
+      "iptables -P FORWARD ACCEPT",
+      
+      // Create geneveTun interface
+      // `ip link show ${geneveTunnelInterface} || ip tuntap add dev ${geneveTunnelInterface} mode tun`,
+      // `ip link set ${geneveTunnelInterface} up`,
+      // `ip addr add 169.254.200.1/30 dev ${geneveTunnelInterface} || true`,
 
-[Peer]
-PublicKey = ${wireguardClientPublicKey}
-AllowedIPs = ${wireguardNetworkCidr}
-PersistentKeepalive = 25
-EOF`,
-      "chmod 600 /etc/wireguard/wg0.conf",
-      "systemctl enable wg-quick@wg0",
-      "wg-quick up wg0",
+      // Direct Server Return (DSR) Configuration:
+      // Return traffic to Backend (10.50.0.0/16) will use the default gateway (ens5)
+      // instead of going back through geneveTun -> GWLB.
+      // Source/Dest Check must be disabled on this instance.
+      
+      // `cat <<'EOF' >/etc/wireguard/wg0.conf
+// [Interface]
+// PrivateKey = ${wireguardServerPrivateKey}
+// Address = ${wireguardServerIp}/16
+// ListenPort = ${wireguardPort}
+// SaveConfig = false
+
+// [Peer]
+// PublicKey = ${wireguardClientPublicKey}
+// AllowedIPs = ${wireguardNetworkCidr}
+// PersistentKeepalive = 25
+// EOF`,
+      // "chmod 600 /etc/wireguard/wg0.conf",
+      // "systemctl enable wg-quick@wg0",
+      // "wg-quick up wg0",
+      
       "mkdir -p /opt/app",
       `cat <<'EOF' >/opt/app/vpn_server.go
 ${vpnServerSrc}
@@ -158,11 +174,11 @@ EOF`,
       "go build -o /tmp/vpn_server vpn_server.go",
       "install -m 755 /tmp/vpn_server /usr/local/bin/vpn_server",
       // Listen on 6081 (GENEVE)
-      `nohup /usr/local/bin/vpn_server --listen :6081 --client ${wireguardClientIp}:6000 --key secret >/var/log/vpn_server.log 2>&1 &`,
+      // `nohup /usr/local/bin/vpn_server --listen :6081 --health-port :80 --tun ${geneveTunnelInterface} --backend-cidr ${backendNetworkCidr} >/var/log/vpn_server.log 2>&1 &`,
       "sleep 1"
     );
 
-    const overlayEc2 = new ec2.Instance(this, "OverlayGateway", {
+    const overlayEc2 = new ec2.Instance(this, "OverlayGatewayV2", {
       vpc: overlayVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroup: overlaySg,
@@ -170,6 +186,7 @@ EOF`,
       machineImage: ec2.MachineImage.latestAmazonLinux2023(),
       userData: serverUserData,
       role: overlayInstanceRole,
+      sourceDestCheck: false, // Allow sending packets with VpnClient source IP (DSR)
     });
 
     // new elbv2.CfnTargetGroupAttachment(this, "AttachOverlay", {
@@ -191,7 +208,6 @@ EOF`,
       vpc: overlayVpc,
       allowAllOutbound: true,
     });
-    clientSg.addIngressRule(overlaySg, ec2.Port.udp(6000));
     clientSg.addIngressRule(overlaySg, ec2.Port.udp(wireguardPort), "Allow WireGuard control");
     overlaySg.addIngressRule(clientSg, ec2.Port.udp(wireguardPort), "Allow WireGuard from client");
 
@@ -224,7 +240,7 @@ EOF`,
       "export GOMODCACHE=/tmp/gomodcache",
       "go build -o /tmp/vpn_client vpn_client.go",
       "install -m 755 /tmp/vpn_client /usr/local/bin/vpn_client",
-      `nohup /usr/local/bin/vpn_client --listen ${wireguardClientIp}:6000 --server ${wireguardServerIp}:5000 --key secret >/var/log/vpn_client.log 2>&1 &`,
+      `nohup /usr/local/bin/vpn_client --listen ${wireguardClientIp}:8080 >/var/log/vpn_client.log 2>&1 &`,
       "sleep 1"
     );
 
@@ -252,9 +268,10 @@ EOF`,
     const backendUserData = ec2.UserData.forLinux();
     backendUserData.addCommands(
       "set -e",
-      "dnf install -y amazon-ssm-agent nmap-ncat tcpdump",
+      "dnf install -y amazon-ssm-agent nmap-ncat tcpdump curl",
       "systemctl enable --now amazon-ssm-agent",
-      "echo 'auto test packet' | ncat -u 10.0.0.10 80"
+      "echo 'auto test packet' | ncat -u 10.0.0.10 80",
+      "curl -sS --max-time 2 http://10.0.0.10:8080 || true"
     );
 
     // const backendEc2 = new ec2.Instance(this, "BackendEc2", {
@@ -290,7 +307,7 @@ EOF`,
     });
 
     //
-    // Route: 10.0.0.10/32 → GWLBE
+    // Route: 10.0.0.0/16 → GWLBE
     //
     backendVpc.publicSubnets.forEach((subnet, i) => {
       new ec2.CfnRoute(this, `BackendToVip${i}`, {

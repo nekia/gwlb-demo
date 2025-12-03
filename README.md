@@ -50,6 +50,10 @@ echo 'auto test packet' | ncat -u 10.0.0.10 80
 ```
 
 ```sh
+curl -v --max-time 5 http://10.0.0.10:8080
+```
+
+```sh
 sudo tcpdump -i any -n 'dst host 10.0.0.10' -v -X
 ```
 
@@ -71,7 +75,7 @@ tail -f /var/log/vpn_server.log
 ```
 
 ```sh
-sudo tcpdump -i any -n '(port 6081 or port 5000)' -v
+sudo tcpdump -i any -n '(port 6081 or port 51820)' -v
 ```
 
 * VPN Client
@@ -92,7 +96,7 @@ tail -f /var/log/vpn_client.log
 ```
 
 ```sh
-sudo tcpdump -i any -n port 6000 -v -A
+sudo tcpdump -i wg0 -n port 8080 -v
 ```
 
 ### WireGuard Overlay
@@ -103,6 +107,12 @@ OverlayGateway と VpnClient 間には WireGuard で `10.0.0.0/16` の仮想ネ�
 sudo wg show
 ip addr show wg0
 ```
+
+### Backend → VPN Client TCP Demo
+
+1. Backend インスタンスにて `curl -v http://10.0.0.10:8080` を実行すると、GWLB → OverlayGateway → WireGuard → VpnClient まで TCP が到達する。
+2. VpnClient 側では `/var/log/vpn_client.log` に HTTP アクセスログが記録され、`sudo tcpdump -i wg0 -n port 8080` でも同様のトラフィックが確認できる。
+3. OverlayGateway では `sudo tcpdump -i geneveTun` や `sudo tcpdump -i wg0 port 8080` を併用すると、Geneve → WireGuard の変換状況も追跡できる。
 
 ## Clean up
 

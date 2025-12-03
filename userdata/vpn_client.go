@@ -1,45 +1,21 @@
 package main
 
 import (
-    "flag"
-    "fmt"
-    "log"
-    "net"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
 )
 
-func xor(data []byte, key []byte) []byte {
-    out := make([]byte, len(data))
-    for i := range data {
-        out[i] = data[i] ^ key[i%len(key)]
-    }
-    return out
-}
-
 func main() {
-    listen := flag.String("listen", "10.0.0.10:6000", "udp listen for tunnel")
-    server := flag.String("server", "10.0.0.1:5000", "server udp address")
-    keyStr := flag.String("key", "secret", "xor key")
-    flag.Parse()
+	listen := flag.String("listen", "10.0.0.10:8080", "HTTP listen address on WireGuard interface")
+	flag.Parse()
 
-    key := []byte(*keyStr)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Hello from VPN client! time=%s remote=%s\n", time.Now().Format(time.RFC3339), r.RemoteAddr)
+	})
 
-    laddr, _ := net.ResolveUDPAddr("udp", *listen)
-    conn, _ := net.ListenUDP("udp", laddr)
-    defer conn.Close()
-
-    serverAddr, _ := net.ResolveUDPAddr("udp", *server)
-
-    // クライアントからサーバへデモメッセージ
-    first := xor([]byte("hello from client (vIP 10.0.0.10)"), key)
-    conn.WriteToUDP(first, serverAddr)
-
-    log.Println("[VPN CLIENT] waiting packets...")
-
-    buf := make([]byte, 65535)
-    for {
-        n, src, _ := conn.ReadFromUDP(buf)
-        data := xor(buf[:n], key)
-
-        fmt.Printf("[TUNNEL] from %s: %s\n", src.String(), string(data))
-    }
+	log.Printf("[VPN CLIENT] HTTP demo listening on %s", *listen)
+	log.Fatal(http.ListenAndServe(*listen, nil))
 }
